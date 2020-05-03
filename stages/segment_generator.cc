@@ -49,13 +49,6 @@ using namespace segment;
 // output is high.
 const int kRetrigDelaySamples = 32;
 
-// S&H delay (for all those sequencers whose CV and GATE outputs are out of
-// sync).
-const size_t kSampleAndHoldDelay = kSampleRate * 2 / 1000;
-
-// Clock inhibition following a rising edge on the RESET input
-const size_t kClockInhibitDelay = kSampleRate * 5 / 1000;
-
 void SegmentGenerator::Init() {
   process_fn_ = &SegmentGenerator::ProcessMultiSegment;
   
@@ -273,10 +266,14 @@ void SegmentGenerator::ProcessSampleAndHold(
       parameters_[0].secondary);
   ParameterInterpolator primary(&primary_, parameters_[0].primary, size);
   
+  // S&H delay (for all those sequencers whose CV and GATE outputs are out of
+  // sync).
+  const size_t sampleAndHoldDelay = sample_rate_ * 2 / 1000;  // 2 milliseconds
+
   while (size--) {
     const float p = primary.Next();
     gate_delay_.Write(*gate_flags);
-    if (gate_delay_.Read(kSampleAndHoldDelay) & GATE_FLAG_RISING) {
+    if (gate_delay_.Read(sampleAndHoldDelay) & GATE_FLAG_RISING) {
       value_ = p;
     }
     active_segment_ = *gate_flags & GATE_FLAG_HIGH ? 0 : 1;
@@ -479,12 +476,15 @@ void SegmentGenerator::ProcessSequencer(
     active_segment_ = address_quantizer_.Process(
         parameters_[0].primary, last_step_ - first_step_ + 1) + first_step_;
   } else {
+    // Clock inhibition following a rising edge on the RESET input
+    const size_t clockInhibitDelay = sample_rate_ * 5 / 1000;
+
     // Detect a rising edge on the slider/CV to reset to the first step.
     if (parameters_[0].primary > 0.125f && !reset_) {
       reset_ = true;
       active_segment_ = direction == DIRECTION_DOWN ? last_step_ : first_step_;
       up_down_counter_ = 0;
-      inhibit_clock_ = kClockInhibitDelay;
+      inhibit_clock_ = clockInhibitDelay;
     }
     if (reset_ && parameters_[0].primary < 0.0625f) {
       reset_ = false;
